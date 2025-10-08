@@ -1,0 +1,242 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Grapevine Search (Wikimedia)</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: 'Inter', sans-serif;
+      background-color: #760086;
+      color: #e6edf3;
+    }
+    .container {
+      max-width: 900px;
+      margin: 60px auto;
+      background-color: #4d0063;
+      border-radius: 14px;
+      padding: 20px 30px;
+      box-shadow: 0 0 25px rgba(0,0,0,0.8);
+    }
+    h1 {
+      text-align: center;
+      margin-bottom: 25px;
+      color: #fff;
+    }
+    input, textarea, button {
+      font-family: inherit;
+      border: none;
+      outline: none;
+      border-radius: 8px;
+    }
+    input, textarea {
+      width: 100%;
+      padding: 10px;
+      margin: 8px 0;
+      background-color: #250038;
+      color: #e6edf3;
+      border: 1px solid #4d0063;
+    }
+    textarea { min-height: 120px; resize: vertical; }
+    button {
+      background-color: #794397;
+      color: #fff;
+      padding: 10px 16px;
+      cursor: pointer;
+      transition: background-color 0.2s;
+    }
+    button:hover { background-color: #760086; }
+    #auth-section { text-align: center; }
+    #app { display: block; }
+    .email-card {
+      border: 1px solid #4d0063;
+      border-radius: 10px;
+      padding: 12px 16px;
+      margin-bottom: 10px;
+      background-color: #250038;
+    }
+    .email-card a {
+      color: #794397;
+      text-decoration: none;
+      transition: color 0.5;
+    }
+    .email-card a:hover {color: #a38eb1; }
+    .tab-buttons {
+      display: flex;
+      justify-content: space-around;
+      border-top: 1px solid #4d0063;
+      margin-top: 15px;
+      padding-top: 10px;
+    }
+    .tab-buttons button {
+      flex: 1;
+      background-color:#794397 ;
+      color: #fff;
+      border: 90px;
+      padding: 10px 0;
+      font-size: 15px;
+      transition: background-color 0.2s;
+      margin-right: 8px;
+    }
+    .tab-buttons button:last-child { margin-right: 0; }
+    .tab-buttons button:hover {background-color:#760086  }
+    .header-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+    }
+    #send { background-color: #1f6feb; }
+    #send:hover { background-color: #388bfd; }
+
+    /* Search-specific */
+    .controls { display:flex; gap:8px; align-items:center; margin-bottom:10px; }
+    .controls input[type="text"]{ flex:1; min-width:200px }
+    .grid { display:grid; grid-template-columns: repeat(auto-fill,minmax(160px,1fr)); gap:12px; margin-top:14px; }
+    .card { background:#250038; border:1px solid #4d0063; border-radius:10px; overflow:hidden; }
+    .card img{ width:100%; height:120px; object-fit:cover; display:block; }
+    .card .meta{ padding:8px; font-size:13px; color:#e6edf3; }
+    .status { color:#e6edf3; margin-top:8px; }
+    .pager { margin-top:12px; display:flex; gap:8px; justify-content:center; }
+    .pager button { background:#794397; color:#fff; padding:6px 10px; border-radius:6px; border:none; cursor:pointer }
+    .safe-toggle { display:flex; align-items:center; gap:8px }
+    .safe-toggle .btn { padding:8px 10px; border-radius:8px; border:1px solid #4d0063; background:#794397; color:#fff; cursor:pointer }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Grapevine Search</h1>
+
+    <div class="controls">
+      <input id="query" type="text" placeholder="Search Wikimedia images (e.g. traffic cone)" />
+      <select id="perPage" style="width:90px; background:#250038; color:#fff; border:1px solid #4d0063">
+        <option value="12">12</option>
+        <option value="24" selected>24</option>
+        <option value="48">48</option>
+      </select>
+      <button id="searchBtn">Search</button>
+      <div style="margin-left:6px" class="safe-toggle">
+        <span style="color:#e6edf3;font-size:13px">SafeSearch</span>
+        <button id="safeBtn" class="btn">ON</button>
+      </div>
+    </div>
+
+    <div id="status" class="status"></div>
+
+    <div id="resultsArea">
+      <div id="results" class="grid"></div>
+      <div id="pager" class="pager"></div>
+    </div>
+  </div>
+
+<script>
+  // Frontend logic — calls /api/search on the same server
+  const queryEl = document.getElementById('query');
+  const searchBtn = document.getElementById('searchBtn');
+  const resultsEl = document.getElementById('results');
+  const statusEl = document.getElementById('status');
+  const safeBtn = document.getElementById('safeBtn');
+  const perPageEl = document.getElementById('perPage');
+  const pagerEl = document.getElementById('pager');
+
+  let safeMode = 'Strict'; // Strict => ON
+  let currentPage = 1;
+  let lastQuery = '';
+
+  safeBtn.addEventListener('click', () => {
+    if (safeMode === 'Strict') {
+      safeMode = 'Off';
+      safeBtn.textContent = 'OFF';
+      safeBtn.style.background = 'transparent';
+      safeBtn.style.color = '#e6edf3';
+      safeBtn.style.border = '1px solid #4d0063';
+    } else {
+      safeMode = 'Strict';
+      safeBtn.textContent = 'ON';
+      safeBtn.style.background = '#794397';
+      safeBtn.style.color = '#fff';
+      safeBtn.style.border = '';
+    }
+  });
+
+  searchBtn.addEventListener('click', () => doSearch(1));
+  queryEl.addEventListener('keydown', (e) => { if (e.key === 'Enter') doSearch(1); });
+
+  async function doSearch(page = 1) {
+    const q = queryEl.value.trim();
+    if (!q) {
+      statusEl.textContent = 'Enter a search term.';
+      return;
+    }
+    lastQuery = q;
+    currentPage = page;
+    const per_page = parseInt(perPageEl.value || '24');
+
+    statusEl.textContent = 'Searching...';
+    resultsEl.innerHTML = '';
+    pagerEl.innerHTML = '';
+
+    try {
+      const url = `/api/search?q=${encodeURIComponent(q)}&safe=${encodeURIComponent(safeMode)}&page=${page}&per_page=${per_page}`;
+      const res = await fetch(url);
+      if (!res.ok) {
+        const txt = await res.text();
+        statusEl.textContent = 'Search failed: ' + txt;
+        return;
+      }
+      const json = await res.json();
+      statusEl.textContent = `Showing ${json.count} results (Wikimedia Commons).`;
+
+      if (!json.results || json.results.length === 0) {
+        resultsEl.innerHTML = '<p style="color:#e6edf3">No results found.</p>';
+        return;
+      }
+
+      json.results.forEach(r => {
+        const card = document.createElement('div');
+        card.className = 'card';
+        const thumb = r.thumbnail || r.contentUrl || '';
+        const title = r.title || '';
+        const host = r.hostPage || '';
+        const full = r.contentUrl || host;
+        const safeTitle = escapeHtml(title);
+        const safeHost = escapeHtml(host);
+
+        card.innerHTML = `
+          <a href="${escapeHtml(full)}" target="_blank" rel="noopener noreferrer">
+            <img src="${escapeHtml(thumb)}" alt="${safeTitle}">
+          </a>
+          <div class="meta">
+            ${safeTitle ? safeTitle : 'Untitled'}<br>
+            <a href="${safeHost}" target="_blank" rel="noopener noreferrer" style="color:#a38eb1;font-size:12px">source</a>
+          </div>
+        `;
+        resultsEl.appendChild(card);
+      });
+
+      // pager: simple prev/next
+      const prevBtn = document.createElement('button');
+      prevBtn.textContent = 'Prev';
+      prevBtn.disabled = page <= 1;
+      prevBtn.onclick = () => doSearch(page - 1);
+      const nextBtn = document.createElement('button');
+      nextBtn.textContent = 'Next';
+      nextBtn.onclick = () => doSearch(page + 1);
+      pagerEl.appendChild(prevBtn);
+      pagerEl.appendChild(nextBtn);
+
+    } catch (e) {
+      statusEl.textContent = 'Search error: ' + e.message;
+      console.error(e);
+    }
+  }
+
+  function escapeHtml (s) {
+    return (s||'').toString().replace(/[&<>"'`=\/]/g, function (c) {
+      return ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;', "'":'&#39;','/':'&#x2F;','`':'&#x60;','=':'&#x3D;'}[c]);
+    });
+  }
+</script>
+</body>
+</html>
